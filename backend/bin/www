@@ -1,0 +1,193 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('backend:server');
+var http = require('http');
+
+const cors = require('cors');
+const { Server } = require('socket.io');
+//mongo디비에 연결하기 위한 패키지
+const mongoose = require('mongoose');
+//mongo디비에 연결하기 위한 패스워드를 json파일로 저장
+const mongoPass = require("../config/userinfo.json");
+const connString = "mongodb://myAdmin:" + mongoPass["password"] + "@localhost:27017/?authSource=admin"
+
+async function connectDB(){
+  if(mongoose.connection.readyState === 0) {
+    const client = await mongoose.connect(connString);
+  }
+}
+
+async function query(userCollection, itemFind){
+  //let cursor = await userCollection.find({userid: 'Cedrick_Gulgowski'});
+  let cursor = await userCollection.find(itemFind);
+  return cursor;
+}
+
+connectDB()
+.then(() => {
+  if(mongoose.connection.readyState === 1){
+    console.log("Connected to mongo db");
+    let admin = mongoose.connection.useDb('admin');
+    console.log("change to admin db");
+    console.log(admin);
+
+    let userCollection = admin.collection("users");
+    console.log("collection of admin");
+    console.log(userCollection);
+
+    userCollection.countDocuments().then((count) => {
+      console.log("collection count:" + count);
+    });
+
+    // itemFind = {userid: "Ernie99"};
+    itemFind = {};
+    console.log("query userList");
+    query(userCollection, itemFind).then(cursor => {
+      cursor.addCursorFlag("noCursorTimeout", true);
+      //cursor = cursor.sort({userid: 'asc'});
+      cursor.next().then(
+        result => {
+          console.log("result");
+          console.log(result);
+        }
+      )
+      cursor.toArray(function(err, data){
+        console.log("show all data")
+        console.log(data); // it will print your collection data
+      });
+    });
+  }
+})
+.catch(err => console.log(err));
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+
+/**
+ * Create HTTP server.
+ */
+
+app.use(
+    cors({
+      origin: ['http://localhost:8080'],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept'],
+    })
+);
+var server = http.createServer(app);
+
+const io = new Server(server, {
+    cors: {origin: ['http://localhost:8080'], credentials: true},
+})
+
+let broadcaster;
+
+io.on("error", e => console.log(e));
+
+// 클라이언트가 브로드캐스트 이벤트를 방출하면
+// 서버에서 받아서 브로드캐스트 아이디를 저장해놓고
+// 다시 브로드캐스트 이벤트를 sender를 제외한 모두에게 전달
+
+io.on("connection", (socket) => {
+    // socket id of broadcaster is saved so that later clients know where to connect
+    socket.on("broadcaster", () => {
+        broadcaster = socket.id;
+        //Emits an event to the socket identified as broadcaster.
+        socket.broadcast.emit("broadcaster");
+    });
+    // event will only be broadcast to clients that have joined the given room(broadcaster)
+    socket.on("watcher", () => {
+        // event will only be broadcast to clients that have joined the given room(broadcaster)
+        socket.to(broadcaster).emit("watcher", socket.id)
+    });
+    socket.on("disconnect", () => {
+        socket.to(broadcaster).emit("disconnectPeer", socket.id)
+    });
+    socket.on("offer", (id, message) => {
+        socket.to(id).emit("offer", socket.id, message);
+    });
+    socket.on("answer", (id, message) => {
+        socket.to(id).emit("answer", socket.id, message);
+    });
+    socket.on("candidate", (id, message) => {
+        socket.to(id).emit("candidate", socket.id, message);
+    });
+});
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port, () => console.log(`Server is running on port ${port}`));
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
