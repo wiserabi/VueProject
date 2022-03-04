@@ -1,7 +1,6 @@
 <template>
   <img alt="Vue logo" src="./assets/logo.png" v-if="loggedOut">
-  <Login v-if="loggedOut" @some-event="setId"/>
-  <router-link :to="`/rtc/${this.usrId}`" @click="verified" v-if="loggedOut">Login</router-link>
+  <Login v-if="loggedOut" @login-event="setId"/>
   <router-view v-if="!loggedOut"></router-view>
 </template>
 
@@ -17,15 +16,12 @@ export default {
   data(){
     return {
       loggedOut: true,
-      usrId: ''
     }
   },
   methods: {
-    verified(){
+    setId(){
+      this.$router.push("/rtc");
       this.loggedOut = false;
-    },
-    setId(data){
-      this.usrId = data;
     }
   },
 }

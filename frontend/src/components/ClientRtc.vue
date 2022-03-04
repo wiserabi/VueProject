@@ -28,12 +28,13 @@
       <button @click="connect" id="connect">connect</button>
     </section>
 
+    <router-link to="/"> to main </router-link>
+    <router-view></router-view>
     <video playsinline autoplay muted></video>
   </div>
 </template>
 
 <script>
-import { io } from "socket.io-client";
 export default {
   name: 'ClientRtc',
   props: {

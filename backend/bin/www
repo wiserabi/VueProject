@@ -3,10 +3,10 @@
 /**
  * Module dependencies.
  */
-
 var app = require('../app');
 var debug = require('debug')('backend:server');
 var http = require('http');
+var cookieParser = require('cookie-parser');
 
 const cors = require('cors');
 const { Server } = require('socket.io');
@@ -15,6 +15,8 @@ const mongoose = require('mongoose');
 //mongo디비에 연결하기 위한 패스워드를 json파일로 저장
 const mongoPass = require("../config/userinfo.json");
 const connString = "mongodb://myAdmin:" + mongoPass["password"] + "@localhost:27017/?authSource=admin"
+
+app.use(cookieParser());
 
 async function connectDB(){
   if(mongoose.connection.readyState === 0) {
@@ -28,42 +30,6 @@ async function query(userCollection, itemFind){
   return cursor;
 }
 
-connectDB()
-.then(() => {
-  if(mongoose.connection.readyState === 1){
-    console.log("Connected to mongo db");
-    let admin = mongoose.connection.useDb('admin');
-    console.log("change to admin db");
-    console.log(admin);
-
-    let userCollection = admin.collection("users");
-    console.log("collection of admin");
-    console.log(userCollection);
-
-    userCollection.countDocuments().then((count) => {
-      console.log("collection count:" + count);
-    });
-
-    // itemFind = {userid: "Ernie99"};
-    itemFind = {};
-    console.log("query userList");
-    query(userCollection, itemFind).then(cursor => {
-      cursor.addCursorFlag("noCursorTimeout", true);
-      //cursor = cursor.sort({userid: 'asc'});
-      cursor.next().then(
-        result => {
-          console.log("result");
-          console.log(result);
-        }
-      )
-      cursor.toArray(function(err, data){
-        console.log("show all data")
-        console.log(data); // it will print your collection data
-      });
-    });
-  }
-})
-.catch(err => console.log(err));
 /**
  * Get port from environment and store in Express.
  */
@@ -99,6 +65,51 @@ io.on("error", e => console.log(e));
 // 다시 브로드캐스트 이벤트를 sender를 제외한 모두에게 전달
 
 io.on("connection", (socket) => {
+    socket.on("login", (userId, userPass) => {
+      //몽고 디비에 연결해서 사용자 정보가 존재하는지 확인
+      connectDB()
+      .then(() => {
+        if(mongoose.connection.readyState === 1){
+          console.log("Connected to mongo db");
+          let admin = mongoose.connection.useDb('admin');
+          // console.log("change to admin db");
+          // console.log(admin);
+
+          let userCollection = admin.collection("users");
+          // console.log("collection of admin");
+          // console.log(userCollection);
+
+          userCollection.countDocuments().then((count) => {
+            console.log("collection count:" + count);
+          });
+
+          // itemFind = {userid: "Ernie99"};
+          itemFind = {userid: userId, password: userPass};
+          query(userCollection, itemFind).then(cursor => {
+            cursor.addCursorFlag("noCursorTimeout", true);
+            //cursor = cursor.sort({userid: 'asc'});
+            cursor.next().then(
+              result => {
+                console.log("result");
+                console.log(result);
+                if(result === null){
+                  socket.emit("validate", userId, false);
+                }
+                else{
+                  socket.emit("validate", userId, true);
+                }
+              }
+            )
+            //전체다 출력하기
+            // cursor.toArray(function(err, data){
+            //   console.log("show all data")
+            //   console.log(data);
+            // });
+          });
+        }
+      })
+      .catch(err => console.log(err));
+    });
     // socket id of broadcaster is saved so that later clients know where to connect
     socket.on("broadcaster", () => {
         broadcaster = socket.id;
