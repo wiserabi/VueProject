@@ -113,12 +113,12 @@ io.on("connection", (socket) => {
     // socket id of broadcaster is saved so that later clients know where to connect
     socket.on("broadcaster", () => {
         broadcaster = socket.id;
-        //Emits an event to the socket identified as broadcaster.
+        //Emits an event to the all connected socket except broadcaster(event sender)
+        //브로드캐스터를 제외한 모든 연결된 클라아이언트에게 broadcaster이벤트 방출
         socket.broadcast.emit("broadcaster");
     });
     // event will only be broadcast to clients that have joined the given room(broadcaster)
     socket.on("watcher", () => {
-        // event will only be broadcast to clients that have joined the given room(broadcaster)
         socket.to(broadcaster).emit("watcher", socket.id)
     });
     socket.on("disconnect", () => {

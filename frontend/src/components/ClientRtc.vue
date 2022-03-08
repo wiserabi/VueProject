@@ -1,6 +1,5 @@
 <template>
   <div class="hello">
-    <h2>Client Id: {{ getUserId }}</h2>
     <section class="select">
       <label for="audioSource">Audio source: </label>
 
@@ -24,8 +23,8 @@
       </select>
     </section>
     <section>
-      <button @click="getStream" id="getStream">getStream</button>
-      <button @click="connect" id="connect">connect</button>
+      <button @click="eventPub" id="eventPub">broadcast</button>
+      <button @click="eventSub" id="eventSub">watch</button>
     </section>
 
     <router-link to="/"> to main </router-link>
@@ -35,14 +34,13 @@
 </template>
 
 <script>
+import { inject } from 'vue'
+
 export default {
   name: 'ClientRtc',
   props: {
   },
   computed: {
-    getUserId(){
-      return this.$route.params.userId;
-    }
   },
   data() {
     return {
@@ -50,14 +48,13 @@ export default {
       peerConnections: {},
       peerConn: null,
       config: {
-          iceServer: [
+          iceServers: [
             {
               "urls": "stun:stun.1.google.com:19302",
             }
           ]
       },
-      socketPub: null,
-      socketSub: null,
+      socket: inject('socket'),
       stream: null,
       deviceInfos: null,
       audios: [],
@@ -66,94 +63,6 @@ export default {
     }
   },
   methods: {
-    connect(){
-      if(this.socketPub === null){
-        this.socketPub = io.connect('http://localhost:3000');
-      }
-      console.log(this.socketPub);
-    },
-    eventSub(){
-      const config = {
-        iceServers: [
-            { 
-              "urls": "stun:stun.l.google.com:19302",
-            },
-        ]
-      };
-      // offer는 방에 참여할지 말지에 대한 제안
-      this.socketSub.on("offer", (id, description) => {
-        const video = document.querySelector("video");
-        this.peerConn = new RTCPeerConnection(config);
-        this.peerConn
-        .setRemoteDescription(description)
-        .then(sdp => this.peerConn.setLocalDescription(sdp))
-        .then(() => {
-          this.socketSub.emit("answer", id, this.peerConn.localDescription);
-        });
-        this.peerConn.ontrack = event => {
-          video.srcObject = event.streams[0];
-        };
-        this.peerConn.onicecandidate = event => {
-          if (event.candidate) {
-            this.socketSub.emit("candidate", id, event.candidate);
-          }
-        };
-      });
-
-      this.socketSub.on("candidate", (id, candidate) => {
-        this.peerConn
-        .addIceCandidate(new RTCIceCandidate(candidate))
-        .catch(e => console.error(e));
-      });
-
-      this.socketSub.on("broadcaster", () => {
-        this.socketSub.emit("watcher");
-      });
-
-      window.onunload = window.onbeforeunload = () => {
-        this.socketSub.close();
-        this.peerConn.close();
-      }
-    },
-    eventPub(){
-      // 영상을 보내는 사람의 소켓에 추가되는 이벤트
-      this.socketPub.on("answer", (id, description) => {
-        this.peerConnections[id].setRemoteDescription(description);
-      });
-
-      this.socketPub.on("watcher", id => {
-        const peerConnection = new RTCPeerConnection(this.config);
-        this.peerConnections[id] = peerConnection;
-
-        const videoElement = document.querySelector("video");
-        let stream = videoElement.srcObject;
-        stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-
-        // RTCPeerConnection 속성의 onicecandidate 는 RTCPeerConnection 인스턴스에서 icecandidate 이벤트 발생시에 호출 하려는 함수를 지정
-        // icecandidate event는 새로운 candidate가 생겼을때 발생하는 이벤트
-        peerConnection.onicecandidate = (event) => {
-          if (event.candidate){
-            this.socketPub.emit("candidate", id, event.candidate);
-          }
-        }
-
-        peerConnection
-        .createOffer()
-        .then(sdp => peerConnection.setLocalDescription(sdp))
-        .then(() => {
-          this.socketPub.emit("offer", id, peerConnection.localDescription);
-        });
-      });
-      
-      this.socketPub.on("candidate", (id, candidate) => {
-        this.peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate));
-      });
-
-      this.socketPub.on("disconnectPeer", id => {
-        this.peerConnections[id].close();
-        delete this.peerConnections[id];
-      })
-    },
     getStream(){
       if(window.stream) {
         window.stream.getTracks().forEach(track => {
@@ -173,14 +82,94 @@ export default {
         const videoElement = document.querySelector("video");
         window.stream = stream;
         videoElement.srcObject = stream;
-        this.socketPub.emit("broadcaster");
+        this.socket.emit("broadcaster");
       })
       .catch(error => {
         console.error("Error: ", error);
       });
+    },
+    eventSub(){
+      // offer는 방에 참여할지 말지에 대한 제안
+      this.socket.on("offer", (id, description) => {
+        const video = document.querySelector("video");
+        this.peerConn = new RTCPeerConnection(this.config);
+        this.peerConn
+        .setRemoteDescription(description)
+        .then(sdp => this.peerConn.setLocalDescription(sdp))
+        .then(() => {
+          this.socket.emit("answer", id, this.peerConn.localDescription);
+        });
+        this.peerConn.ontrack = event => {
+          video.srcObject = event.streams[0];
+        };
+        this.peerConn.onicecandidate = event => {
+          if (event.candidate) {
+            this.socket.emit("candidate", id, event.candidate);
+          }
+        };
+      });
+
+      this.socket.on("candidate", (id, candidate) => {
+        this.peerConn
+        .addIceCandidate(new RTCIceCandidate(candidate))
+        .catch(e => console.error(e));
+      });
+
+      this.socket.on("broadcaster", () => {
+        this.socket.emit("watcher");
+      });
+
+      window.onunload = window.onbeforeunload = () => {
+        this.socket.close();
+        this.peerConn.close();
+      }
+    },
+    eventPub(){
+      // 영상을 보내는 사람의 소켓에 추가되는 이벤트
+      this.socket.on("answer", (id, description) => {
+        this.peerConnections[id].setRemoteDescription(description);
+      });
+
+      this.socket.on("watcher", id => {
+        const peerConnection = new RTCPeerConnection(this.config);
+        this.peerConnections[id] = peerConnection;
+
+        const videoElement = document.querySelector("video");
+        let stream = videoElement.srcObject;
+        stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+        // icecandidate이벤트 발생시 호출되는 함수를 정의해준다
+        // icecandidate이벤트는 local ICE agent가 다른 peer에게 signaling server를 통해
+        // 메시지를 전달해야 할때마다 발생한다
+        // Signaling  Server는 사용자 간의 WebRTC를 위한 P2P 통신을 할 때 모르는 사용자를 엮어주는 역할을 한다.
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate){
+            this.socket.emit("candidate", id, event.candidate);
+          }
+        }
+
+        peerConnection
+        .createOffer()
+        .then(sdp => peerConnection.setLocalDescription(sdp))
+        .then(() => {
+          this.socket.emit("offer", id, peerConnection.localDescription);
+        });
+      });
+      
+      this.socket.on("candidate", (id, candidate) => {
+        this.peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate));
+      });
+
+      this.socket.on("disconnectPeer", id => {
+        this.peerConnections[id].close();
+        delete this.peerConnections[id];
+      });
+
+      this.getStream();
     }
   },
   mounted() {
+    this.socket.removeAllListeners();
     //video, audio장치 가져오기
     navigator.mediaDevices.enumerateDevices().then(
         devices => {
